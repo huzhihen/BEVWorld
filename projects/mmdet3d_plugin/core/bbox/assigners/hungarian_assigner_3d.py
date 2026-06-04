@@ -13,7 +13,6 @@ except ImportError:
     linear_sum_assignment = None
 
 
-@BBOX_ASSIGNERS.register_module()
 class HungarianAssigner3D(BaseAssigner):
     """Computes one-to-one matching between predictions and ground truth.
     This class computes an assignment between the targets and the predictions
@@ -134,3 +133,7 @@ class HungarianAssigner3D(BaseAssigner):
         assigned_labels[matched_row_inds] = gt_labels[matched_col_inds]
         return AssignResult(
             num_gts, assigned_gt_inds, None, labels=assigned_labels)
+
+
+if 'HungarianAssigner3D' not in BBOX_ASSIGNERS._module_dict:
+    BBOX_ASSIGNERS.register_module(HungarianAssigner3D)

@@ -1,4 +1,5 @@
 import copy
+import warnings
 
 import numpy as np
 from mmdet.datasets import DATASETS
@@ -85,14 +86,20 @@ class LiDARInstanceLines(object):
                  padding=False,
                  fixed_num=-1,
                  padding_value=-10000,
-                 patch_size=None):
+                 patch_size=None,
+                 patch_center=None):
         assert isinstance(instance_line_list, list)
         assert patch_size is not None
         if len(instance_line_list) != 0:
             assert isinstance(instance_line_list[0], LineString)
         self.patch_size = patch_size
-        self.max_x = self.patch_size[1] / 2
-        self.max_y = self.patch_size[0] / 2
+        if patch_center is None:
+            patch_center = (0.0, 0.0)
+        self.patch_center = tuple(float(v) for v in patch_center)
+        self.min_x = self.patch_center[0] - self.patch_size[1] / 2
+        self.max_x = self.patch_center[0] + self.patch_size[1] / 2
+        self.min_y = self.patch_center[1] - self.patch_size[0] / 2
+        self.max_y = self.patch_center[1] + self.patch_size[0] / 2
         self.sample_dist = sample_dist
         self.num_samples = num_samples
         self.padding = padding
@@ -545,6 +552,7 @@ class VectorizedLocalMap(object):
                  fixed_ptsnum_per_line=-1,
                  padding_value=-10000,
                  thickness=3,
+                 patch_center=None,
                  aux_seg = dict(
                     use_aux_seg=False,
                     bev_seg=False,
@@ -568,6 +576,13 @@ class VectorizedLocalMap(object):
 
         # for semantic mask
         self.patch_size = patch_size
+        if patch_center is None:
+            patch_center = (0.0, 0.0)
+        self.patch_center = tuple(float(v) for v in patch_center)
+        self.local_x_min = self.patch_center[0] - self.patch_size[1] / 2
+        self.local_x_max = self.patch_center[0] + self.patch_size[1] / 2
+        self.local_y_min = self.patch_center[1] - self.patch_size[0] / 2
+        self.local_y_max = self.patch_center[1] + self.patch_size[0] / 2
         self.canvas_size = canvas_size
         self.thickness = thickness
         self.scale_x = self.canvas_size[1] / self.patch_size[1]
@@ -655,8 +670,11 @@ class VectorizedLocalMap(object):
                     gt_labels.append(instance_type)
             gt_semantic_mask=None
             gt_pv_semantic_mask=None
-        gt_instance = LiDARInstanceLines(gt_instance,gt_labels, self.sample_dist,
-                        self.num_samples, self.padding, self.fixed_num,self.padding_value, patch_size=self.patch_size)
+        gt_instance = LiDARInstanceLines(
+            gt_instance, gt_labels, self.sample_dist,
+            self.num_samples, self.padding, self.fixed_num,
+            self.padding_value, patch_size=self.patch_size,
+            patch_center=self.patch_center)
 
 
         anns_results = dict(
@@ -1036,6 +1054,7 @@ class CustomNuScenesOfflineLocalMapDataset(CustomNuScenesDataset):
                  eval_use_same_gt_sample_num_flag=False,
                  padding_value=-10000,
                  map_classes=None,
+                 with_map_gt=True,
                  noise='None',
                  noise_std=0,
                  aux_seg = dict(
@@ -1053,13 +1072,29 @@ class CustomNuScenesOfflineLocalMapDataset(CustomNuScenesDataset):
         self.queue_length = queue_length
         self.overlap_test = overlap_test
         self.bev_size = bev_size
+        self.with_map_gt = with_map_gt
 
         self.MAPCLASSES = self.get_map_classes(map_classes)
         self.NUM_MAPCLASSES = len(self.MAPCLASSES)
         self.pc_range = pc_range
+        metadata = getattr(self, 'metadata', {}) or {}
+        pkl_pc_range = metadata.get('map_point_cloud_range')
+        if pkl_pc_range is not None and not np.allclose(
+            np.asarray(pkl_pc_range, dtype=np.float32),
+            np.asarray(pc_range, dtype=np.float32),
+        ):
+            warnings.warn(
+                'MapTR pkl map_point_cloud_range does not match dataset '
+                f'pc_range: pkl={pkl_pc_range}, config={pc_range}. '
+                'Regenerate the pkl with the same --point-cloud-range to '
+                'avoid clipped or mis-normalized map GT.',
+                RuntimeWarning,
+            )
         patch_h = pc_range[4]-pc_range[1]
         patch_w = pc_range[3]-pc_range[0]
         self.patch_size = (patch_h, patch_w)
+        self.patch_center = ((pc_range[0] + pc_range[3]) * 0.5,
+                     (pc_range[1] + pc_range[4]) * 0.5)
         self.padding_value = padding_value
         self.fixed_num = fixed_ptsnum_per_line
         self.eval_use_same_gt_sample_num_flag = eval_use_same_gt_sample_num_flag
@@ -1069,6 +1104,7 @@ class CustomNuScenesOfflineLocalMapDataset(CustomNuScenesDataset):
                                              map_classes=self.MAPCLASSES, 
                                              fixed_ptsnum_per_line=fixed_ptsnum_per_line,
                                              padding_value=self.padding_value,
+                                             patch_center=self.patch_center,
                                              aux_seg=aux_seg)
         self.is_vis_on_test = False
         self.noise = noise
@@ -1131,8 +1167,18 @@ class CustomNuScenesOfflineLocalMapDataset(CustomNuScenesDataset):
                 # empty tensor, will be passed in train, 
                 # but we preserve it for test
                 gt_vecs_pts_loc = gt_vecs_pts_loc
-        example['gt_labels_3d'] = DC(gt_vecs_label, cpu_only=False)
-        example['gt_bboxes_3d'] = DC(gt_vecs_pts_loc, cpu_only=True)
+        map_labels = DC(gt_vecs_label, cpu_only=False)
+        map_bboxes = DC(gt_vecs_pts_loc, cpu_only=True)
+        example['gt_map_labels_3d'] = map_labels
+        example['gt_map_bboxes_3d'] = map_bboxes
+
+        # Preserve detection GT when the caller already collected it for
+        # joint training. If only map supervision exists, keep the historical
+        # key names as a compatibility fallback.
+        if 'gt_labels_3d' not in example:
+            example['gt_labels_3d'] = map_labels
+        if 'gt_bboxes_3d' not in example:
+            example['gt_bboxes_3d'] = map_bboxes
 
         # gt_seg_mask = to_tensor(anns_results['gt_semantic_mask'])
         # gt_pv_seg_mask = to_tensor(anns_results['gt_pv_semantic_mask'])
@@ -1166,9 +1212,11 @@ class CustomNuScenesOfflineLocalMapDataset(CustomNuScenesDataset):
         self.pre_pipeline(input_dict)
         # import pdb;pdb.set_trace()
         example = self.pipeline(input_dict)
-        example = self.vectormap_pipeline(example,input_dict)
+        if self.with_map_gt:
+            example = self.vectormap_pipeline(example,input_dict)
+        label_key = 'gt_map_labels_3d' if 'gt_map_labels_3d' in example else 'gt_labels_3d'
         if self.filter_empty_gt and \
-                (example is None or ~(example['gt_labels_3d']._data != -1).any()):
+                (example is None or ~(example[label_key]._data != -1).any()):
             return None
         data_queue.insert(0, example)
         for i in prev_indexs_list:
@@ -1179,9 +1227,11 @@ class CustomNuScenesOfflineLocalMapDataset(CustomNuScenesDataset):
             if input_dict['frame_idx'] < frame_idx and input_dict['scene_token'] == scene_token:
                 self.pre_pipeline(input_dict)
                 example = self.pipeline(input_dict)
-                example = self.vectormap_pipeline(example,input_dict)
+                if self.with_map_gt:
+                    example = self.vectormap_pipeline(example,input_dict)
+                label_key = 'gt_map_labels_3d' if 'gt_map_labels_3d' in example else 'gt_labels_3d'
                 if self.filter_empty_gt and \
-                        (example is None or ~(example['gt_labels_3d']._data != -1).any()):
+                        (example is None or ~(example[label_key]._data != -1).any()):
                     return None
                 frame_idx = input_dict['frame_idx']
             data_queue.insert(0, copy.deepcopy(example))
@@ -1192,7 +1242,7 @@ class CustomNuScenesOfflineLocalMapDataset(CustomNuScenesDataset):
         convert sample queue into one single sample.
         """
         # import ipdb;ipdb.set_trace()
-        imgs_list = [each['img'].data for each in queue]
+        imgs_list = [each['img'].data for each in queue] if 'img' in queue[-1] else None
         metas_map = {}
         prev_pos = None
         prev_angle = None
@@ -1230,8 +1280,9 @@ class CustomNuScenesOfflineLocalMapDataset(CustomNuScenesDataset):
                 prev_angle = copy.deepcopy(tmp_angle)
                 prev_lidar2global = copy.deepcopy(tmp_lidar2global)
 
-        queue[-1]['img'] = DC(torch.stack(imgs_list),
-                              cpu_only=False, stack=True)
+        if imgs_list is not None:
+            queue[-1]['img'] = DC(torch.stack(imgs_list),
+                                  cpu_only=False, stack=True)
         queue[-1]['img_metas'] = DC(metas_map, cpu_only=True)
         queue = queue[-1]
         return queue
@@ -1336,15 +1387,18 @@ class CustomNuScenesOfflineLocalMapDataset(CustomNuScenesDataset):
 
             input_dict.update(
                 dict(
+                    image_paths=image_paths,
                     img_filename=image_paths,
                     lidar2img=lidar2img_rts,
                     cam_intrinsic=cam_intrinsics,
                     lidar2cam=lidar2cam_rts,
                 ))
 
-        # if not self.test_mode:
-        #     # annos = self.get_ann_info(index)
-        input_dict['ann_info'] = info['annotation']
+        # Keep object detection GT under ``ann_info`` for the standard
+        # LoadAnnotations3D pipeline, and preserve vector-map GT separately
+        # for ``vectormap_pipeline``.
+        input_dict['annotation'] = info.get('annotation', {})
+        input_dict['ann_info'] = self.get_ann_info(index)
 
         rotation = Quaternion(input_dict['ego2global_rotation'])
         translation = input_dict['ego2global_translation']
@@ -1628,19 +1682,42 @@ class CustomNuScenesOfflineLocalMapDataset(CustomNuScenesDataset):
         Returns:
             dict[str, float]: Results of each evaluation metric.
         """
-        result_files, tmp_dir = self.format_results(results, jsonfile_prefix)
+        metrics = metric if isinstance(metric, (list, tuple)) else [metric]
+        map_metrics = [m for m in metrics if m in ('chamfer', 'iou')]
+        object_metrics = [m for m in metrics if m in ('bbox', 'object', '3dod')]
+        unsupported = [
+            m for m in metrics
+            if m not in ('bbox', 'object', '3dod', 'chamfer', 'iou')
+        ]
+        if unsupported:
+            raise KeyError(f'metric {unsupported} is not supported')
 
-        if isinstance(result_files, dict):
-            results_dict = dict()
-            for name in result_names:
-                print('Evaluating bboxes of {}'.format(name))
-                ret_dict = self._evaluate_single(result_files[name], metric=metric)
-            results_dict.update(ret_dict)
-        elif isinstance(result_files, str):
-            results_dict = self._evaluate_single(result_files, metric=metric)
+        results_dict = dict()
+        if object_metrics and len(results) > 0 and 'boxes_3d' in results[0]:
+            print('Evaluating 3D object detection')
+            object_results = NuScenesDataset.evaluate(
+                self,
+                results,
+                detection_cfg=getattr(self, 'eval_detection_configs', None),
+                verbose=True,
+            )
+            results_dict.update(object_results)
 
-        if tmp_dir is not None:
-            tmp_dir.cleanup()
+        if map_metrics and len(results) > 0 and 'map_boxes_3d' in results[0]:
+            result_files, tmp_dir = self.format_results(results, jsonfile_prefix)
+
+            if isinstance(result_files, dict):
+                for name in result_names:
+                    print('Evaluating vector maps of {}'.format(name))
+                    ret_dict = self._evaluate_single(
+                        result_files[name], metric=map_metrics)
+                results_dict.update(ret_dict)
+            elif isinstance(result_files, str):
+                results_dict.update(
+                    self._evaluate_single(result_files, metric=map_metrics))
+
+            if tmp_dir is not None:
+                tmp_dir.cleanup()
 
         if show:
             self.show(results, out_dir, pipeline=pipeline)
@@ -1648,10 +1725,15 @@ class CustomNuScenesOfflineLocalMapDataset(CustomNuScenesDataset):
 
 
 def output_to_vecs(detection):
-    box3d = detection['boxes_3d'].numpy()
-    scores = detection['scores_3d'].numpy()
-    labels = detection['labels_3d'].numpy()
-    pts = detection['pts_3d'].numpy()
+    box_key = 'map_boxes_3d' if 'map_boxes_3d' in detection else 'boxes_3d'
+    score_key = 'map_scores_3d' if 'map_scores_3d' in detection else 'scores_3d'
+    label_key = 'map_labels_3d' if 'map_labels_3d' in detection else 'labels_3d'
+    pts_key = 'map_pts_3d' if 'map_pts_3d' in detection else 'pts_3d'
+
+    box3d = detection[box_key].numpy()
+    scores = detection[score_key].numpy()
+    labels = detection[label_key].numpy()
+    pts = detection[pts_key].numpy()
 
     vec_list = []
     for i in range(box3d.shape[0]):

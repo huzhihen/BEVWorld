@@ -270,7 +270,6 @@ class _OSA_stage(nn.Sequential):
             )
 
 
-@BACKBONES.register_module()
 class VoVNet(BaseModule):
     def __init__(self, spec_name, input_ch=3, out_features=None, 
                  frozen_stages=-1, norm_eval=True, pretrained=None, init_cfg=None):
@@ -352,3 +351,7 @@ class VoVNet(BaseModule):
                 outputs[name] = x
 
         return outputs
+
+
+if 'VoVNet' not in BACKBONES._module_dict:
+    BACKBONES.register_module(VoVNet)

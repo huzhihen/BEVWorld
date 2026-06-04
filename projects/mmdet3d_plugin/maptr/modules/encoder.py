@@ -6,7 +6,11 @@ from mmcv.cnn.bricks.registry import (ATTENTION,
                                       TRANSFORMER_LAYER,
                                       TRANSFORMER_LAYER_SEQUENCE)
 from mmdet3d.ops import bev_pool
-from mmdet3d.ops.bev_pool_v2.bev_pool import bev_pool_v2
+
+try:
+    from mmdet3d.ops.bev_pool_v2.bev_pool import bev_pool_v2
+except ImportError:
+    bev_pool_v2 = None
 from mmcv.runner import force_fp32, auto_fp16
 from torch.cuda.amp.autocast_mode import autocast
 from mmcv.cnn import build_conv_layer
@@ -581,6 +585,11 @@ class BaseTransformV2(BaseModule):
 
     @force_fp32()
     def voxel_pooling_v2(self, coor, depth, feat):
+        if bev_pool_v2 is None:
+            raise ImportError(
+                'MapTR LSSTransform requires bev_pool_v2. '
+                'Run: cd BEVWorld && pip install -e .'
+            )
         ranks_bev, ranks_depth, ranks_feat, \
             interval_starts, interval_lengths = \
             self.voxel_pooling_prepare_v2(coor)

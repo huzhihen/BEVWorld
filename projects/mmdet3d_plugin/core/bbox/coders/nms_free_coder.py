@@ -68,7 +68,6 @@ def denormalize_2d_pts(pts, pc_range):
                             pc_range[1]) + pc_range[1])
     return new_pts
 
-@BBOX_CODERS.register_module()
 class NMSFreeCoder(BaseBBoxCoder):
     """Bbox coder for NMS-free detector.
     Args:
@@ -181,6 +180,10 @@ class NMSFreeCoder(BaseBBoxCoder):
         for i in range(batch_size):
             predictions_list.append(self.decode_single(all_cls_scores[i], all_bbox_preds[i]))
         return predictions_list
+
+
+if 'NMSFreeCoder' not in BBOX_CODERS._module_dict:
+    BBOX_CODERS.register_module(NMSFreeCoder)
 
 
 @BBOX_CODERS.register_module()

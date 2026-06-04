@@ -78,7 +78,6 @@ class HeuristicAssigner3D(BaseAssigner):
         )
 
 
-@BBOX_ASSIGNERS.register_module()
 class HungarianAssigner3D(BaseAssigner):
     def __init__(self,
                  cls_cost=dict(type='ClassificationCost', weight=1.),
@@ -140,3 +139,9 @@ class HungarianAssigner3D(BaseAssigner):
         # max_overlaps = iou.max(1).values
         return AssignResult(
             num_gts, assigned_gt_inds, max_overlaps, labels=assigned_labels)
+
+
+# Plugin (MapTR/BEVFormer) may register HungarianAssigner3D first; keep the
+# TransFusion-oriented implementation only when the name is still free.
+if 'HungarianAssigner3D' not in BBOX_ASSIGNERS._module_dict:
+    BBOX_ASSIGNERS.register_module(HungarianAssigner3D)

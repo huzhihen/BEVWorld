@@ -334,6 +334,9 @@ class CustomCollect3D(object):
                 img_metas[key] = results[key]
 
         data['img_metas'] = DC(img_metas, cpu_only=True)
+        # BEVFusion train_step reads data["metas"], while MapTR heads use
+        # img_metas. Keep both names pointing to the same metadata payload.
+        data['metas'] = DC(img_metas, cpu_only=True)
         for key in self.keys:
             data[key] = results[key]
         return data

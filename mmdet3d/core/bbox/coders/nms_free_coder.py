@@ -5,7 +5,6 @@ from mmdet.core.bbox.builder import BBOX_CODERS
 from mmdet3d.core.bbox.util import denormalize_bbox
 
 
-@BBOX_CODERS.register_module()
 class NMSFreeCoder(BaseBBoxCoder):
     """Bbox coder for NMS-free fusion_model.
     Args:
@@ -116,3 +115,7 @@ class NMSFreeCoder(BaseBBoxCoder):
                 self.decode_single(all_cls_scores[i], all_bbox_preds[i])
             )
         return predictions_list
+
+
+if 'NMSFreeCoder' not in BBOX_CODERS._module_dict:
+    BBOX_CODERS.register_module(NMSFreeCoder)

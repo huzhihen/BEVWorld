@@ -52,27 +52,31 @@ class LoadMultiViewImageFromFiles:
                 - scale_factor (float): Scale factor.
                 - img_norm_cfg (dict): Normalization configuration of images.
         """
-        filename = results["image_paths"]
-        # img is of shape (h, w, c, num_views)
-        # modified for waymo
+        filename = results.get("image_paths") or results.get("img_filename")
+        if filename is None:
+            raise KeyError(
+                "LoadMultiViewImageFromFiles expects 'image_paths' or 'img_filename'"
+            )
         images = []
-        h, w = 0, 0
         for name in filename:
-            images.append(Image.open(name))
-        
-        #TODO: consider image padding in waymo
+            img = mmcv.imread(name, self.color_type)
+            if self.to_float32:
+                img = img.astype(np.float32)
+            images.append(img)
 
         results["filename"] = filename
-        # unravel to list, see `DefaultFormatBundle` in formating.py
-        # which will transpose each image separately and then stack into array
         results["img"] = images
-        # [1600, 900]
-        results["img_shape"] = images[0].size
-        results["ori_shape"] = images[0].size
-        # Set initial values for default meta_keys
-        results["pad_shape"] = images[0].size
+        results["img_shape"] = images[0].shape
+        results["ori_shape"] = images[0].shape
+        results["pad_shape"] = images[0].shape
         results["scale_factor"] = 1.0
-        
+        num_channels = 1 if len(images[0].shape) < 3 else images[0].shape[2]
+        results["img_norm_cfg"] = dict(
+            mean=np.zeros(num_channels, dtype=np.float32),
+            std=np.ones(num_channels, dtype=np.float32),
+            to_rgb=False,
+        )
+
         return results
 
     def __repr__(self):

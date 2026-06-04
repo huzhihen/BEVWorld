@@ -22,6 +22,10 @@ from .knn import knn
 from .norm import NaiveSyncBatchNorm1d, NaiveSyncBatchNorm2d
 from .paconv import PAConv, PAConvCUDA, assign_score_withk
 from .bev_pool import *
+try:
+    from .bev_pool_v2 import *
+except ImportError:
+    pass
 from .pointnet_modules import (
     PAConvCUDASAModule,
     PAConvCUDASAModuleMSG,

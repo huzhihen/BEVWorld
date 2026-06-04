@@ -101,7 +101,16 @@ class DefaultFormatBundle3D:
                         dtype=np.int64,
                     )
         if "img" in results:
-            results["img"] = DC(torch.stack(results["img"]), stack=True)
+            imgs = []
+            for img in results["img"]:
+                if isinstance(img, torch.Tensor):
+                    img_tensor = img
+                else:
+                    if hasattr(img, "ndim") and img.ndim == 3:
+                        img = np.ascontiguousarray(img.transpose(2, 0, 1))
+                    img_tensor = to_tensor(img)
+                imgs.append(img_tensor)
+            results["img"] = DC(torch.stack(imgs), stack=True)
 
         for key in [
             "proposals",

@@ -1,6 +1,5 @@
+"""
+BEVFormer 子模块（bevformer.modules.*）。
 
-from .dense_heads import *
-from .detectors import *
-from .modules import *
-from .runner import *
-from .hooks import *
+不在包初始化时导入 detectors，避免拉起 mmdet3d.models 全量 backbones。
+"""

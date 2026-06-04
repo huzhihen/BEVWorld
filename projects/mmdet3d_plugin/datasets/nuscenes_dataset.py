@@ -23,7 +23,18 @@ class CustomNuScenesDataset(NuScenesDataset):
     """
 
     def __init__(self, queue_length=4, bev_size=(200, 200), overlap_test=False, *args, **kwargs):
+        # MapTR/BEVFusion 配置使用 data_root、classes；BEVWorld mmdet3d 使用 dataset_root、object_classes
+        if "data_root" in kwargs and "dataset_root" not in kwargs:
+            kwargs["dataset_root"] = kwargs.pop("data_root")
+        if "classes" in kwargs and "object_classes" not in kwargs:
+            kwargs["object_classes"] = kwargs.pop("classes")
+        # nuScenes devkit 仅识别 detection_cvpr_2019（bevfusion 配置常写 _nuscenes 后缀）
+        if kwargs.get("eval_version") == "detection_cvpr_2019_nuscenes":
+            kwargs["eval_version"] = "detection_cvpr_2019"
+        name_mapping = kwargs.pop("name_mapping", None)
         super().__init__(*args, **kwargs)
+        if name_mapping is not None:
+            self.NameMapping = name_mapping
         self.queue_length = queue_length
         self.overlap_test = overlap_test
         self.bev_size = bev_size

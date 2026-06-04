@@ -183,6 +183,7 @@ class NuScenesDataset(Custom3DDataset):
             gt_names = set(info["gt_names"][mask])
         else:
             gt_names = set(info["gt_names"])
+        gt_names = {self.NameMapping.get(name, name) for name in gt_names}
 
         cat_ids = []
         for name in gt_names:
@@ -305,7 +306,9 @@ class NuScenesDataset(Custom3DDataset):
         else:
             mask = info["num_lidar_pts"] > 0
         gt_bboxes_3d = info["gt_boxes"][mask]
-        gt_names_3d = info["gt_names"][mask]
+        gt_names_3d = np.array(
+            [self.NameMapping.get(name, name) for name in info["gt_names"][mask]]
+        )
         gt_labels_3d = []
         for cat in gt_names_3d:
             if cat in self.CLASSES:
