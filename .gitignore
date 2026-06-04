@@ -131,7 +131,21 @@ dmypy.json
 # Models and data
 models/*
 data/*
+data
+pretrained/*
+pretrained
+checkpoints/*
+checkpoints
+ckpts/*
+ckpts
 runs/*
+runs
+output/*
+output
+work_dirs/*
+work_dirs
+vis_dirs/*
+vis_dirs
 
 # torch hipify generated files
 *_hip.*
