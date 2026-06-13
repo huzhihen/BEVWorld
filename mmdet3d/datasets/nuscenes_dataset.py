@@ -216,14 +216,18 @@ class NuScenesDataset(Custom3DDataset):
             lidar_path=info["lidar_path"],
             sweeps=info["sweeps"],
             timestamp=info["timestamp"],
-            location=info.get('location', None), 
-            radar=info.get('radars', None), 
+            location=info.get('location', None),
         )
 
         if data['location'] is None:
             data.pop('location')
-        if data['radar'] is None:
-            data.pop('radar')
+
+        # infos 里的 radars 只是文件路径元数据；只有 use_radar=True 且 pipeline
+        # 含 LoadRadarPointsMultiSweeps 时才会被加载为点云对象
+        if self.modality.get("use_radar", False):
+            radar = info.get("radars", None)
+            if radar is not None:
+                data["radar"] = radar
 
         # ego to global transform
         ego2global = np.eye(4).astype(np.float32)

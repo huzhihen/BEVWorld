@@ -57,20 +57,18 @@ class LoadMultiViewImageFromFiles:
             raise KeyError(
                 "LoadMultiViewImageFromFiles expects 'image_paths' or 'img_filename'"
             )
+        # 与上游 BEVFusion 一致：使用 PIL.Image，ori_shape/img_shape 为 (W, H)
         images = []
         for name in filename:
-            img = mmcv.imread(name, self.color_type)
-            if self.to_float32:
-                img = img.astype(np.float32)
-            images.append(img)
+            images.append(Image.open(name))
 
         results["filename"] = filename
         results["img"] = images
-        results["img_shape"] = images[0].shape
-        results["ori_shape"] = images[0].shape
-        results["pad_shape"] = images[0].shape
+        results["img_shape"] = images[0].size
+        results["ori_shape"] = images[0].size
+        results["pad_shape"] = images[0].size
         results["scale_factor"] = 1.0
-        num_channels = 1 if len(images[0].shape) < 3 else images[0].shape[2]
+        num_channels = len(images[0].getbands())
         results["img_norm_cfg"] = dict(
             mean=np.zeros(num_channels, dtype=np.float32),
             std=np.ones(num_channels, dtype=np.float32),
